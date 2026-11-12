@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' https://www.googletagmanager.com; img-src data: https://www.googletagmanager.com https://*.google-analytics.com; connect-src https://www.googletagmanager.com https://*.google-analytics.com https://*.google.com; base-uri 'none'; form-action 'none'">
+<title>リスト整形ツール</title>
+<meta name="description" content="営業リスト・企業リストの表記ゆれ（全角半角・株式会社・電話・URL）を揃えて重複を見つける。貼り付けた内容の整形はブラウザ内で行います。">
+<style>
+:root{color-scheme:light dark;--bg:#f7f8fa;--fg:#1d2330;--mut:#5b6575;--card:#fff;--bd:#d9dee7;--ac:#1f5fbf;--btn:#1f5fbf;--ok:#17703a;--warn:#a14b00}
+@media (prefers-color-scheme:dark){:root{--bg:#10141b;--fg:#e6e9ef;--mut:#9aa4b5;--card:#181e28;--bd:#2c3544;--ac:#6ea3f5;--btn:#2f6cc4;--ok:#5fcf8b;--warn:#f0a35e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 system-ui,"Hiragino Sans","Yu Gothic",sans-serif}
+main{max-width:960px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:8px 0 4px}h2{font-size:16px;margin:0 0 8px}
+.lead{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin:0 0 14px}
+textarea{width:100%;min-height:150px;font:13px/1.5 ui-monospace,Consolas,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px}
+button,select,input[type=file]{font:inherit;color:var(--fg)}
+button{background:var(--btn);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;margin:4px 6px 4px 0}
+button.sub{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button:disabled{opacity:.45;cursor:default}
+label.opt{display:block;margin:2px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 18px}
+.tw{overflow:auto;max-height:340px;border:1px solid var(--bd);border-radius:8px}
+table{border-collapse:collapse;font-size:13px;width:100%}
+th,td{border-bottom:1px solid var(--bd);padding:4px 8px;text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:var(--card)}
+tr.dup td{background:rgba(161,75,0,.14)}
+td.chg{color:var(--ok);font-weight:600}
+.stat{color:var(--mut);margin:6px 0}
+.note{color:var(--mut);font-size:13px}
+.badge{display:inline-block;border:1px solid var(--bd);border-radius:99px;padding:0 10px;font-size:12px;color:var(--ok);vertical-align:middle}
+#cta{display:none}
+#cta a{color:var(--ac);margin-right:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>リスト整形ツール <span class="badge">整形はブラウザ内で処理</span></h1>
+<p class="lead">営業リスト・企業リストの「表記ゆれ」を揃えて、重複を見つけます。貼り付けたデータや読み込んだファイルは、この画面の中だけで処理します。整形の処理に通信はなく、入力データを送る処理も組み込んでいません。利用状況の計測に Google アナリティクスのスクリプトを読み込みます（<a href="#measure">プライバシーと計測について</a>）。</p>
+
+<div class="card">
+<h2>1. データを入れる</h2>
+<textarea id="src" placeholder="ここに CSV またはスプレッドシートからコピーした表（タブ区切り）を貼り付け。1行目は見出し行。" aria-label="入力データ"></textarea>
+<div>
+<input type="file" id="file" accept=".csv,.tsv,.txt" aria-label="CSVファイルを選ぶ">
+<button type="button" class="sub" id="sample">サンプルを入れる</button>
+<button type="button" class="sub" id="clear">クリア</button>
+</div>
+<p class="note">読み込めるのは CSV（カンマ）・TSV（タブ）。ファイルは文字コード UTF-8 を想定（Excel の「CSV UTF-8」で保存）。Shift_JIS の場合はスプレッドシートで開いてからコピー＆貼り付けしてください。</p>
+</div>
+
+<p class="stat" id="warn" role="status" style="color:var(--warn)"></p>
+<div class="card">
+<h2>2. 揃える内容</h2>
+<div class="grid">
+<label class="opt"><input type="checkbox" id="oTrim" checked> 前後・連続する空白を整える</label>
+<label class="opt"><input type="checkbox" id="oWidth" checked> 全角の英数字・記号を半角にする</label>
+<label class="opt"><input type="checkbox" id="oCorp" checked> 法人格の略称を正式名にする（(株)→株式会社、(有)・(同) など。前株・後株の位置は変えません）</label>
+<label class="opt"><input type="checkbox" id="oTel" checked> 電話・FAX をハイフン付きに揃える（03・06・携帯・フリーダイヤルなど。区切りが不定な番号は元のまま）</label>
+<label class="opt"><input type="checkbox" id="oUrl" checked> URL を揃える（http→https・先頭の www を外す・末尾の / ・utm/fbclid/gclid と # 以降を削除）</label>
+<label class="opt"><input type="checkbox" id="oMail" checked> メールアドレスを小文字にする</label>
+<label class="opt"><input type="checkbox" id="oZip" checked> 郵便番号を「〒」なし 123-4567 に揃える</label>
+</div>
+<p class="note">列の種類は見出し名から自動判定します（例: 会社名・企業名・社名／電話・TEL／URL・HP／メール／郵便番号）。判定できない列は空白と全角半角だけ整えます。</p>
+</div>
+
+<div class="card">
+<h2>3. 重複を見つける</h2>
+<p>重複の判定に使う列（複数選択可。複数選ぶと「すべてが同じ」行を重複とします）:</p>
+<div id="keys" class="grid"></div>
+<p class="note">会社名だけで判定すると、同じ名前の別の会社も重複とみなします。電話や住所の列も選ぶと誤りが減ります。</p>
+<label class="opt"><input type="checkbox" id="oDedup"> 重複行を取り除く（最初の1行を残す）。オフのときは重複に印を付けるだけ</label>
+<div><button type="button" id="run" disabled>整形する</button></div>
+</div>
+
+<div class="card" id="outCard" style="display:none">
+<h2>4. 結果</h2>
+<div class="stat" id="stat" aria-live="polite"></div>
+<div class="tw"><table id="tbl"></table></div>
+<p class="note">緑の文字は値が変わったセル、オレンジの行は重複です（最初の1行以外）。先頭200行まで表示します。出力は全行です。</p>
+<div>
+<button type="button" id="dlCsv">CSVを保存（Excel用・UTF-8）</button>
+<button type="button" class="sub" id="cpTsv">表をコピー（スプレッドシートに貼れます）</button>
+</div>
+</div>
+
+<div class="card" id="cta"><h2>リスト作成・データ整理を任せたいとき</h2><div id="ctaLinks"></div></div>
+
+<p class="note">整形は機械的な置き換えです。保存するCSVとコピーする表では、= + - @ で始まる文字列（数式に見えるもの）の先頭に ' を付けます。同一会社かどうかの判定などは誤りが残ることがあるため、納品・営業に使う前に目で確認してください。</p>
+<p class="note" id="measure"><b>プライバシーと計測について</b>: 運営者: Noe／連絡先: <a href="https://www.lancers.jp/profile/mekarauroko777" target="_blank" rel="noopener">ランサーズのプロフィール</a>のメッセージ。利用状況を知るために Google アナリティクスを使っています。Cookie を使い、ページの閲覧、スクロールやリンクのクリックなどの操作、「整形する」や案内リンクが押された回数を、閲覧環境の情報（ブラウザの種類・おおよその地域・参照元・ページの URL など）とともに Google へ送ります。このページの処理から、貼り付けたデータ、ファイルの中身、列名、件数を Google へ渡すことはありません。<a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">Google によるデータの使用について</a>／止めるには<a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener">オプトアウト アドオン</a>をお使いください。Cookie を拒否すると、訪問者の識別に Cookie を使わなくなります。</p>
+</main>
+
+<script>
+/* analytics: 公開時に GA_ID へ G-XXXX を入れる。空なら読み込まず何も送らない。この関数から送るイベントは tidy_run と cta_click のみ。入力データ・列名・件数は渡さない。page_view などは GA が自動で送る */
+var TRACK=(function(){
+  var GA_ID='G-C4GGTRZ4QH';
+  if(!/^G-[A-Z0-9]+$/.test(GA_ID))return function(){};
+  window.dataLayer=window.dataLayer||[];
+  function gtag(){window.dataLayer.push(arguments)}
+  gtag('js',new Date());
+  gtag('config',GA_ID,{allow_google_signals:false,allow_ad_personalization_signals:false});
+  var t=document.createElement('script');t.async=true;t.src='https://www.googletagmanager.com/gtag/js?id='+GA_ID;document.head.appendChild(t);
+  return function(name){if(name==='tidy_run'||name==='cta_click')gtag('event',name)};
+})();
+</script>
+<script>
+/* core: 画面に依存しない整形ロジック。通信は一切しない */
+var CORE=(function(){
+  function toHalf(s){
+    return s.replace(/[！-～]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0)}).replace(/　/g,' ');
+  }
+  function hyphens(s){return s.replace(/[‐-―−－]/g,'-')}
+  function parseCSV(text,delim){
+    var rows=[],row=[],f='',q=false,i=0,n=text.length;
+    if(text.charCodeAt(0)===0xFEFF)i=1;
+    for(;i<n;i++){
+      var c=text[i];
+      if(q){
+        if(c==='"'){ if(text[i+1]==='"'){f+='"';i++} else q=false }
+        else f+=c;
+      }else{
+        if(c==='"'&&f==='')q=true;
+        else if(c===delim){row.push(f);f=''}
+        else if(c==='\n'||c==='\r'){
+          if(c==='\r'&&text[i+1]==='\n')i++;
+          row.push(f);f='';rows.push(row);row=[];
+        }else f+=c;
+      }
+    }
+    parseCSV.unclosed=q;
+    if(f!==''||row.length){row.push(f);rows.push(row)}
+    return rows.filter(function(r){return r.some(function(x){return x.trim()!==''})});
+  }
+  function detectDelim(text){
+    var head=text.split(/\r?\n/).slice(0,5).join('\n');
+    var t=(head.match(/\t/g)||[]).length,c=(head.match(/,/g)||[]).length;
+    return t>=c&&t>0?'\t':',';
+  }
+  function colType(h){
+    h=toHalf(String(h)).toLowerCase().replace(/\s/g,'');
+    var w=function(re){return new RegExp('(^|[^a-z])('+re+')([^a-z]|$)').test(h)};
+    if(/メール/.test(h)||w('e-?mail|mail'))return 'mail';
+    if(/電話|ファックス|ファクス|携帯/.test(h)||w('tel|phone|fax'))return 'tel';
+    if(/ホームページ/.test(h)||w('url|hp|website'))return 'url';
+    if(/郵便|〒/.test(h)||w('zip|postal'))return 'zip';
+    if(/会社名|企業名|社名|法人名|店舗名|組織名/.test(h)||w('company|organization'))return 'company';
+    return 'other';
+  }
+  function normCorp(s){
+    s=s.replace(/\u3231/g,'(株)').replace(/\u3232/g,'(有)').replace(/\u3234/g,'(名)');
+    return s.replace(/[（(]\s*株\s*[）)]/g,'株式会社').replace(/[（(]\s*有\s*[）)]/g,'有限会社').replace(/[（(]\s*同\s*[）)]/g,'合同会社').replace(/[（(]\s*資\s*[）)]/g,'合資会社').replace(/[（(]\s*名\s*[）)]/g,'合名会社');
+  }
+  function normTel(s){
+    var raw=hyphens(toHalf(s)).trim().replace(/^\+81\s*\(0\)\s*/,'+81');
+    if(/[^\d+\-\s().]/.test(raw))return s.trim();
+    var d=raw.replace(/[^\d]/g,'');
+    if(raw.indexOf('+81')===0)d='0'+d.slice(2);
+    if(!/^0\d{9,10}$/.test(d))return s.trim();
+    if(/^0[789]0[1-9]\d{7}$/.test(d)||/^050[1-9]\d{7}$/.test(d))return d.slice(0,3)+'-'+d.slice(3,7)+'-'+d.slice(7);
+    if(/^0120\d{6}$/.test(d)||/^0800\d{7}$/.test(d)||/^0570\d{6}$/.test(d))return d.slice(0,4)+'-'+d.slice(4,7)+'-'+d.slice(7);
+    if(/^0[36]\d{8}$/.test(d))return d.slice(0,2)+'-'+d.slice(2,6)+'-'+d.slice(6);
+    return s.trim();
+  }
+  function normUrl(s){
+    var v=toHalf(s).trim(); if(!v||(/@/.test(v)&&!/:\/\//.test(v))||/^[\d.\s]+$/.test(v)||/\s/.test(v))return v;
+    if(!/^[a-z][a-z0-9+.\-]*:\/\//i.test(v)){ if(/^[^\s\/]+\.[^\s\/]+/.test(v))v='https://'+v; else return v; }
+    v=v.replace(/^http:\/\//i,'https://');
+    var u=v.split('#')[0],q='',qi=u.indexOf('?');
+    if(qi>=0){q=u.slice(qi+1);u=u.slice(0,qi);
+      q=q.split('&').filter(function(p){return p&&!/^(utm_[a-z]+|fbclid|gclid)=/i.test(p)}).join('&')}
+    var m=u.match(/^(https:\/\/)([^\/]+)(.*)$/i); if(!m)return v;
+    var host=m[2].toLowerCase().replace(/^www\./,''),path=m[3].replace(/\/+$/,'');
+    return 'https://'+host+path+(q?'?'+q:'');
+  }
+  function normZip(s){
+    var t=toHalf(s).replace(/[〒\s]/g,'');
+    if(/[^\d\-]/.test(t))return s.trim();
+    var d=t.replace(/[^\d]/g,'');
+    return d.length===7?d.slice(0,3)+'-'+d.slice(3):s.trim();
+  }
+  function cell(v,type,o){
+    var s=v==null?'':String(v);
+    if(o.trim)s=s.replace(/[ 　]/g,' ').replace(/\s+/g,' ').trim();
+    if(o.width)s=toHalf(s);
+    if(type==='company'&&o.corp)s=normCorp(s);
+    if(type==='tel'&&o.tel)s=normTel(s);
+    if(type==='url'&&o.url)s=normUrl(s);
+    if(type==='mail'&&o.mail)s=toHalf(s).trim().toLowerCase();
+    if(type==='zip'&&o.zip)s=normZip(s);
+    if(o.trim)s=s.trim();
+    return s;
+  }
+  function keyOf(v,type){
+    var s=String(v==null?'':v).trim(); if(!s)return '';
+    s=toHalf(s).toLowerCase();
+    if(type==='company')s=normCorp(s).replace(/[\s・.\-]/g,'');
+    else if(type==='tel')s=s.replace(/[^\d]/g,'');
+    else if(type==='url')s=normUrl(s).replace(/^https:\/\//,'');
+    else s=s.replace(/\s/g,'');
+    return s;
+  }
+  function tidy(rows,o,keyCols){
+    var head=rows[0],types=head.map(colType),out=[head.slice()],changed=0,flags=[false],dups=0,seen=Object.create(null),cmap=[[]];
+    for(var r=1;r<rows.length;r++){
+      var src=rows[r],line=[],cm=[];
+      for(var c=0;c<head.length;c++){
+        var nv=cell(src[c],types[c],o);
+        if(nv!==(src[c]==null?'':src[c])){changed++;cm.push(c)}
+        line.push(nv);
+      }
+      var parts=keyCols.map(function(c){return keyOf(line[c],types[c])});
+      var isDup=false;
+      if(keyCols.length&&parts.some(function(p){return p!==''})){
+        var k=parts.join('\u0001'); if(seen[k])isDup=true; else seen[k]=1;
+      }
+      if(isDup)dups++;
+      out.push(line);flags.push(isDup);cmap.push(cm);
+    }
+    var res=[out[0]],rf=[false],rc=[[]];
+    for(var i=1;i<out.length;i++){ if(o.dedup&&flags[i])continue; res.push(out[i]);rf.push(flags[i]);rc.push(cmap[i]) }
+    return {rows:res,dupFlags:rf,changedMap:rc,changed:changed,dups:dups,total:rows.length-1,types:types};
+  }
+  function guard(x){
+    if(/^[\t\r]*[=+\-@]/.test(x)&&!/^[+\-]?[\d.,]+$/.test(x)&&!/^\+\d[\d\- ()]*$/.test(x))return "'"+x;
+    return x;
+  }
+  function toCSV(rows){
+    return rows.map(function(r){return r.map(function(x){x=String(x==null?'':x);x=guard(x);return /[",\r\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x}).join(',')}).join('\r\n');
+  }
+  function toTSV(rows){return rows.map(function(r){return r.map(function(x){return guard(String(x==null?'':x).replace(/[\t\r\n]+/g,' ').replace(/^ +/,''))}).join('\t')}).join('\n')}
+  return {parseCSV:parseCSV,hyphens:hyphens,detectDelim:detectDelim,colType:colType,tidy:tidy,toCSV:toCSV,toTSV:toTSV,normTel:normTel,normUrl:normUrl,normCorp:normCorp,normZip:normZip};
+})();
+</script>
+<script>
+/* 画面 */
+(function(){
+  /* 導線: 公開時に https の URL を入れる（空なら何も表示しない）。リンクはユーザーのクリックでのみ開く */
+  var CTA=[ {label:'リスト作成・データ整理を相談する',href:'https://www.lancers.jp/menu/detail/1339197'} ];
+  var $=function(id){return document.getElementById(id)};
+  var rows=null,result=null;
+  var SAMPLE='会社名,電話番号,URL,メール,郵便番号,住所\n'
+   +'(株)サンプル商事,０３－１２３４－５６７８,http://www.sample-shoji.example/?utm_source=x,Info@Sample-Shoji.example,〒１００－０００１,東京都千代田区千代田1-1\n'
+   +'株式会社サンプル商事,03(1234)5678,https://sample-shoji.example/,info@sample-shoji.example,100-0001,東京都千代田区千代田1-1\n'
+   +'テスト工業　株式会社,06 9876 5432,test-kogyo.example,sales@test-kogyo.example,5300001,大阪府大阪市北区梅田1-1\n'
+   +'㈱ミライ,09012345678,https://mirai.example/about/,contact@mirai.example,1500002,東京都渋谷区渋谷2-2\n'
+   +'有限会社　あおぞら,0120-123-456,,aozora@example.example,,北海道札幌市中央区1-1\n';
+  function showCta(){
+    var box=$('ctaLinks');box.textContent='';
+    CTA.filter(function(x){return x.href&&/^https:\/\//.test(x.href)}).forEach(function(x){
+      var a=document.createElement('a');a.textContent=x.label;a.href=x.href;a.target='_blank';a.rel='noopener';a.addEventListener('click',function(){TRACK('cta_click')});box.appendChild(a)});
+    if(box.children.length)$('cta').style.display='block';
+  }
+  function load(text){
+    var k=$('keys'),prev={};
+    [].slice.call(k.querySelectorAll('label')).forEach(function(l){prev[l.textContent.trim()]=l.firstChild.checked});
+    k.textContent='';result=null;$('outCard').style.display='none';$('warn').textContent='';
+    rows=CORE.parseCSV(text,CORE.detectDelim(text));
+    var msg=[];
+    if(CORE.parseCSV.unclosed)msg.push('閉じていない「"」があります。以降の行が正しく読めていない可能性があります。');
+    if(text.indexOf('\uFFFD')>=0)msg.push('文字化けがあります。Shift_JIS のファイルの可能性があります。スプレッドシートで開いてからコピー＆貼り付けしてください。');
+    if(rows.length<2){ $('run').disabled=true; if(text.trim())k.textContent='2行以上（見出し行＋データ）が必要です。'; $('warn').textContent=msg.join(' '); return }
+    var width=rows[0].length,bad=[];
+    rows=rows.map(function(r,ri){if(r.length!==width&&ri>0)bad.push(ri+1);var x=r.slice(0,width);while(x.length<width)x.push('');return x});
+    if(bad.length)msg.push('見出しと列数が合わない行が '+bad.length+' 行あります（見出しを1行目とした行番号。空行は数えません: '+bad.slice(0,10).join(', ')+(bad.length>10?' …':'')+'）。足りない列は空欄に、余った列は切り捨てています。カンマを含む値は " で囲んでください。');
+    $('warn').textContent=msg.join(' ');
+    var types=rows[0].map(CORE.colType),first=true,hasPrev=rows[0].some(function(h){return Object.prototype.hasOwnProperty.call(prev,String(h||'').trim())});
+    rows[0].forEach(function(h,i){
+      var name=String(h||('列'+(i+1))).trim();
+      var l=document.createElement('label');l.className='opt';
+      var cb=document.createElement('input');cb.type='checkbox';cb.value=i;
+      if(Object.prototype.hasOwnProperty.call(prev,name))cb.checked=prev[name];
+      else if(types[i]==='company'&&first&&!hasPrev)cb.checked=true;
+      if(types[i]==='company')first=false;
+      l.appendChild(cb);l.appendChild(document.createTextNode(' '+name));k.appendChild(l);
+    });
+    $('run').disabled=false;
+  }
+  $('src').addEventListener('input',function(){load(this.value)});
+  $('file').addEventListener('change',function(){
+    var f=this.files[0]; if(!f)return; var r=new FileReader();
+    r.onload=function(){ $('src').value=String(r.result); load($('src').value) };
+    r.readAsText(f,'utf-8');
+  });
+  $('sample').addEventListener('click',function(){$('src').value=SAMPLE;load(SAMPLE)});
+  $('clear').addEventListener('click',function(){$('src').value='';rows=null;result=null;$('keys').textContent='';$('warn').textContent='';$('file').value='';$('run').disabled=true;$('outCard').style.display='none'});
+  $('run').addEventListener('click',function(){
+    if(!rows)return;
+    var o={trim:$('oTrim').checked,width:$('oWidth').checked,corp:$('oCorp').checked,tel:$('oTel').checked,url:$('oUrl').checked,mail:$('oMail').checked,zip:$('oZip').checked,dedup:$('oDedup').checked};
+    var keys=[].slice.call($('keys').querySelectorAll('input:checked')).map(function(x){return +x.value});
+    result=CORE.tidy(rows,o,keys);
+    var t=$('tbl');t.textContent='';
+    var thead=document.createElement('tr');
+    result.rows[0].forEach(function(h){var th=document.createElement('th');th.textContent=h;thead.appendChild(th)});t.appendChild(thead);
+    for(var i=1;i<result.rows.length&&i<=200;i++){
+      (function(i){
+        var tr=document.createElement('tr'); if(result.dupFlags[i])tr.className='dup';
+        result.rows[i].forEach(function(v,c){var td=document.createElement('td');td.textContent=v;if(result.changedMap[i].indexOf(c)>=0)td.className='chg';tr.appendChild(td)});
+        t.appendChild(tr);
+      })(i);
+    }
+    $('stat').textContent='入力 '+result.total+' 行 ／ 値を整えたセル '+result.changed+' 個 ／ 重複 '+result.dups+' 行'+(o.dedup?'（取り除きました。出力 '+(result.rows.length-1)+' 行）':(keys.length?'（印のみ）':'（判定列が未選択のため重複は調べていません）'));
+    $('outCard').style.display='block'; showCta(); TRACK('tidy_run');
+  });
+  $('dlCsv').addEventListener('click',function(){
+    if(!result)return; var b=new Blob(['﻿'+CORE.toCSV(result.rows)],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='tidy-list.csv';document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+  });
+  $('cpTsv').addEventListener('click',function(){
+    if(!result)return; var s=CORE.toTSV(result.rows),btn=this;
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(s).then(function(){btn.textContent='コピーしました'},function(){btn.textContent='コピーできませんでした（CSV保存をお使いください）'});
+    else btn.textContent='この環境ではコピーできません（CSV保存をお使いください）';
+  });
+})();
+</script>
+</body>
+</html>
